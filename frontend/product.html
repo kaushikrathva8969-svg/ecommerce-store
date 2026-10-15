@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Product - Shop</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <nav class="navbar" id="navbar"></nav>
+
+  <main class="container">
+    <a class="btn small back-link" href="index.html">Back to products</a>
+
+    <div id="message" class="message"></div>
+    <div id="productBox"></div>
+
+    <form class="box" id="buyForm" style="display:none">
+      <h2>Shipping address</h2>
+      <div class="form-grid">
+        <div>
+          <label for="fullName">Full name</label>
+          <input type="text" id="fullName" required>
+        </div>
+        <div>
+          <label for="phone">Phone</label>
+          <input type="text" id="phone" required>
+        </div>
+      </div>
+
+      <label for="street">Street address</label>
+      <input type="text" id="street" required>
+
+      <div class="form-grid">
+        <div>
+          <label for="city">City</label>
+          <input type="text" id="city" required>
+        </div>
+        <div>
+          <label for="state">State</label>
+          <input type="text" id="state" required>
+        </div>
+      </div>
+
+      <label for="pincode">Pincode</label>
+      <input type="text" id="pincode" required>
+
+      <label for="paymentMethod">Payment method</label>
+      <select id="paymentMethod">
+        <option value="online">Pay online (Razorpay)</option>
+        <option value="cod">Cash on delivery</option>
+      </select>
+
+      <p><button class="btn" type="submit" id="buyBtn">Place order and pay</button></p>
+    </form>
+  </main>
+
+  <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+  <script src="js/api.js"></script>
+  <script>
+    const productId = getQueryParam("id");
+
+    async function loadProduct() {
+      try {
+        const p = await api("/products/" + productId);
+
+        if (!p) {
+          showMessage("Product not found.", "error");
+          return;
+        }
+
+        const inStock = p.stock > 0;
+        document.getElementById("productBox").innerHTML = `
+          <div class="card detail">
+            <div class="pic">${pictureHtml(p)}</div>
+            <div>
+              <h1>${escapeHtml(p.name)}</h1>
+              <p class="meta">${escapeHtml(p.category || "")}</p>
+              <h2>${formatMoney(p.price)}</h2>
+              <p>${inStock ? p.stock + " in stock" : '<span class="badge out">Out of stock</span>'}</p>
+              <p>${escapeHtml(p.description || "")}</p>
+              ${inStock && !isAdmin() ? `
+                <label for="qty">Quantity</label>
+                <input class="qty" type="number" id="qty" value="1" min="1" max="${p.stock}">
+                <div class="actions">
+                  <button class="btn outline" onclick="addFromPage()">Add to cart</button>
+                  <button class="btn" onclick="showBuyForm()">Buy now</button>
+                </div>` : ""}
+            </div>
+          </div>`;
+      } catch (error) {
+        showMessage(error.message, "error");
+      }
+    }
+
+    function addFromPage() {
+      const quantity = Number(document.getElementById("qty").value);
+      if (quantity < 1) {
+        showMessage("Quantity must be at least 1.", "error");
+        return;
+      }
+      addToCart(productId, quantity);
+    }
+
+    document.getElementById("paymentMethod").addEventListener("change", function () {
+      document.getElementById("buyBtn").textContent =
+        this.value === "cod" ? "Place order" : "Place order and pay";
+    });
+
+    function showBuyForm() {
+      if (!getToken()) {
+        window.location.href = "login.html";
+        return;
+      }
+      const form = document.getElementById("buyForm");
+      form.style.display = "block";
+      form.scrollIntoView();
+    }
+
+    document.getElementById("buyForm").addEventListener("submit", async function (event) {
+      event.preventDefault();
+
+      const btn = document.getElementById("buyBtn");
+      btn.disabled = true;
+
+      const quantity = Number(document.getElementById("qty").value);
+      const shippingAddress = {
+        fullName: document.getElementById("fullName").value,
+        phone: document.getElementById("phone").value,
+        street: document.getElementById("street").value,
+        city: document.getElementById("city").value,
+        state: document.getElementById("state").value,
+        pincode: document.getElementById("pincode").value,
+      };
+
+      const paymentMethod = document.getElementById("paymentMethod").value;
+
+      let order;
+      try {
+        order = await api("/orders/buy-now", "POST", { productId, quantity, shippingAddress, paymentMethod });
+      } catch (error) {
+        showMessage(error.message, "error");
+        btn.disabled = false;
+        return;
+      }
+
+      // cash on delivery: nothing to pay now
+      if (paymentMethod === "cod") {
+        window.location.href = "orders.html";
+        return;
+      }
+
+      try {
+        await payForOrder(order._id);
+        window.location.href = "orders.html";
+      } catch (error) {
+        showMessage(error.message + " Your order is saved. You can pay later from My orders.", "error");
+        btn.disabled = false;
+      }
+    });
+
+    loadProduct();
+  </script>
+</body>
+</html>

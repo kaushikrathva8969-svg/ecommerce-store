@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>My orders - Shop</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <nav class="navbar" id="navbar"></nav>
+
+  <main class="container">
+    <div class="page-header">
+      <h1>My orders</h1>
+      <p class="subtitle">Your past orders and their payment status.</p>
+    </div>
+
+    <div id="message" class="message"></div>
+    <div id="list"></div>
+  </main>
+
+  <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+  <script src="js/api.js"></script>
+  <script>
+    requireLogin();
+    if (isAdmin()) window.location.href = "admin.html";
+
+    async function loadOrders() {
+      try {
+        const orders = await api("/orders");
+        const products = await api("/products");
+
+        // the order only stores product ids, so build id -> product
+        const productsById = {};
+        for (const p of products) productsById[p._id] = p;
+
+        const list = document.getElementById("list");
+        if (orders.length === 0) {
+          list.innerHTML = '<p class="empty">You have no orders yet. <a href="index.html">Browse products</a></p>';
+          return;
+        }
+
+        orders.sort(function (a, b) { return new Date(b.createdAt) - new Date(a.createdAt); });
+
+        let html = "";
+        for (const o of orders) {
+          let itemsHtml = "";
+          for (const item of o.items) {
+            const p = productsById[item.product];
+            const name = p ? p.name : "Product no longer available";
+
+            const pic = p && p.image
+              ? '<img src="' + escapeHtml(p.image) + '" alt="" style="width:48px;height:48px;object-fit:cover;border-radius:8px;vertical-align:middle;margin-right:10px">'
+              : "";
+            const title = p
+              ? '<a href="product.html?id=' + p._id + '">' + escapeHtml(name) + "</a>"
+              : escapeHtml(name);
+
+            itemsHtml += "<li>" + pic + title + " &times; " + item.quantity + " &mdash; " + formatMoney(item.price * item.quantity) + "</li>";
+          }
+
+          const a = o.shippingAddress || {};
+          const address = [a.fullName, a.street, a.city, a.state, a.pincode, a.phone].filter(Boolean).join(", ");
+
+          html += `
+            <div class="card">
+              <div class="row">
+                <h3>Order #${o._id.slice(-6)}</h3>
+                <span class="badge ${escapeHtml(o.status)}">${escapeHtml(o.status)}</span>
+              </div>
+              <p class="meta">Placed on ${formatDate(o.createdAt)}</p>
+              <ul class="items">${itemsHtml}</ul>
+              <p class="meta">Ship to: ${escapeHtml(address)}</p>
+              <p class="meta">Payment: ${o.paymentMethod === "cod" ? "Cash on delivery" : "Online"}</p>
+              <div class="row">
+                <strong>Total: ${formatMoney(o.totalAmount)}</strong>
+                <div>
+                  ${o.status === "pending" ? '<button class="btn small" onclick="payNow(\'' + o._id + '\')">Pay now</button>' : ""}
+                  ${o.status === "pending" || o.status === "confirmed" ? '<button class="btn small danger" onclick="cancelOrder(\'' + o._id + '\')">Cancel order</button>' : ""}
+                </div>
+              </div>
+            </div>`;
+        }
+        list.innerHTML = html;
+      } catch (error) {
+        showMessage(error.message, "error");
+      }
+    }
+
+    async function payNow(orderId) {
+      try {
+        await payForOrder(orderId);
+        showMessage("Payment successful.", "success");
+        loadOrders();
+      } catch (error) {
+        showMessage(error.message, "error");
+      }
+    }
+
+    async function cancelOrder(orderId) {
+      if (!confirm("Cancel this order?")) return;
+
+      try {
+        await api("/orders/" + orderId + "/cancel", "PUT");
+        showMessage("Order cancelled.", "success");
+        loadOrders();
+      } catch (error) {
+        showMessage(error.message, "error");
+      }
+    }
+
+    loadOrders();
+  </script>
+</body>
+</html>

@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cart - Shop</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <nav class="navbar" id="navbar"></nav>
+
+  <main class="container">
+    <div class="page-header">
+      <h1>My cart</h1>
+      <p class="subtitle">Check your items, enter your address and pay.</p>
+    </div>
+
+    <div id="message" class="message"></div>
+    <div id="cartList"></div>
+
+    <form class="box" id="checkoutForm" style="display:none">
+      <h2>Shipping address</h2>
+      <div class="form-grid">
+        <div>
+          <label for="fullName">Full name</label>
+          <input type="text" id="fullName" required>
+        </div>
+        <div>
+          <label for="phone">Phone</label>
+          <input type="text" id="phone" required>
+        </div>
+      </div>
+
+      <label for="street">Street address</label>
+      <input type="text" id="street" required>
+
+      <div class="form-grid">
+        <div>
+          <label for="city">City</label>
+          <input type="text" id="city" required>
+        </div>
+        <div>
+          <label for="state">State</label>
+          <input type="text" id="state" required>
+        </div>
+      </div>
+
+      <label for="pincode">Pincode</label>
+      <input type="text" id="pincode" required>
+
+      <label for="paymentMethod">Payment method</label>
+      <select id="paymentMethod">
+        <option value="online">Pay online (Razorpay)</option>
+        <option value="cod">Cash on delivery</option>
+      </select>
+
+      <p><button class="btn" type="submit" id="payBtn">Place order and pay</button></p>
+    </form>
+  </main>
+
+  <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+  <script src="js/api.js"></script>
+  <script>
+    requireLogin();
+    if (isAdmin()) window.location.href = "admin.html";
+
+    async function loadCart() {
+      try {
+        const cart = await api("/cart");
+        const list = document.getElementById("cartList");
+        const form = document.getElementById("checkoutForm");
+
+        // the backend sends null if the user never added anything
+        if (!cart || cart.items.length === 0) {
+          list.innerHTML = '<p class="empty">Your cart is empty. <a href="index.html">Browse products</a></p>';
+          form.style.display = "none";
+          return;
+        }
+
+        let html = "";
+        let total = 0;
+        for (const item of cart.items) {
+          const p = item.product;
+          if (!p) continue; // product was deleted
+          const subtotal = p.price * item.quantity;
+          total += subtotal;
+          html += `
+            <div class="card row">
+              <div>
+                ${p.image ? `<img src="${escapeHtml(p.image)}" alt="" style="width:60px;height:60px;object-fit:cover;border-radius:8px">` : ""}
+                <h3><a href="product.html?id=${p._id}">${escapeHtml(p.name)}</a></h3>
+                <p class="meta" style="margin:0">${formatMoney(p.price)} each</p>
+                <div style="margin-top:6px">
+                  <button class="btn small outline" onclick="changeQty('${p._id}', ${item.quantity - 1})" ${item.quantity <= 1 ? "disabled" : ""}>-</button>
+                  <strong style="margin:0 10px">${item.quantity}</strong>
+                  <button class="btn small outline" onclick="changeQty('${p._id}', ${item.quantity + 1})">+</button>
+                </div>
+              </div>
+              <div class="row">
+                <strong>${formatMoney(subtotal)}</strong>
+                <button class="btn small danger" onclick="removeItem('${p._id}')">Remove</button>
+              </div>
+            </div>`;
+        }
+        html += '<p class="total">Total: ' + formatMoney(total) + "</p><br>";
+        list.innerHTML = html;
+        form.style.display = "block";
+      } catch (error) {
+        showMessage(error.message, "error");
+      }
+    }
+
+    async function changeQty(productId, quantity) {
+      try {
+        await api("/cart", "PUT", { productId, quantity });
+        loadCart();
+      } catch (error) {
+        showMessage(error.message, "error");
+      }
+    }
+
+    async function removeItem(productId) {
+      try {
+        await api("/cart", "DELETE", { productId });
+        loadCart();
+      } catch (error) {
+        showMessage(error.message, "error");
+      }
+    }
+
+    document.getElementById("checkoutForm").addEventListener("submit", async function (event) {
+      event.preventDefault();
+
+      const btn = document.getElementById("payBtn");
+      btn.disabled = true;
+
+      const shippingAddress = {
+        fullName: document.getElementById("fullName").value,
+        phone: document.getElementById("phone").value,
+        street: document.getElementById("street").value,
+        city: document.getElementById("city").value,
+        state: document.getElementById("state").value,
+        pincode: document.getElementById("pincode").value,
+      };
+
+      const paymentMethod = document.getElementById("paymentMethod").value;
+
+      let order;
+      try {
+        // 1) create the order from the cart
+        order = await api("/orders", "POST", { shippingAddress, paymentMethod });
+      } catch (error) {
+        showMessage(error.message, "error");
+        btn.disabled = false;
+        return;
+      }
+
+      // cash on delivery: nothing to pay now
+      if (paymentMethod === "cod") {
+        window.location.href = "orders.html";
+        return;
+      }
+
+      try {
+        // 2) pay for it
+        await payForOrder(order._id);
+        window.location.href = "orders.html";
+      } catch (error) {
+        showMessage(error.message + " Your order is saved. You can pay later from My orders.", "error");
+        loadCart();
+        btn.disabled = false;
+      }
+    });
+
+    document.getElementById("paymentMethod").addEventListener("change", function () {
+      document.getElementById("payBtn").textContent =
+        this.value === "cod" ? "Place order" : "Place order and pay";
+    });
+
+    loadCart();
+  </script>
+</body>
+</html>

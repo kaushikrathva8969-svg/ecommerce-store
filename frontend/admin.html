@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Admin - Shop</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <nav class="navbar" id="navbar"></nav>
+
+  <main class="container">
+    <div class="page-header">
+      <h1>Manage products</h1>
+    </div>
+
+    <div id="message" class="message"></div>
+
+    <form class="box" id="productForm">
+      <h2 id="formTitle">Add a product</h2>
+
+      <div class="form-grid">
+        <div>
+          <label for="name">Name</label>
+          <input type="text" id="name" required>
+        </div>
+        <div>
+          <label for="category">Category</label>
+          <input type="text" id="category">
+        </div>
+        <div>
+          <label for="price">Price</label>
+          <input type="number" id="price" min="0" required>
+        </div>
+        <div>
+          <label for="stock">Stock</label>
+          <input type="number" id="stock" min="0" value="0">
+        </div>
+      </div>
+
+      <label for="image">Image URL (optional)</label>
+      <input type="text" id="image">
+
+      <label for="description">Description</label>
+      <textarea id="description"></textarea>
+
+      <div class="actions">
+        <button class="btn" type="submit" id="saveBtn">Add product</button>
+        <button class="btn outline" type="button" id="cancelBtn" style="display:none" onclick="resetForm()">Cancel edit</button>
+      </div>
+    </form>
+
+    <h2>All products</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Name</th><th>Category</th><th>Price</th><th>Stock</th><th></th></tr>
+        </thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+    </div>
+
+    <h2>All orders</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Date</th><th>Customer</th><th>Items</th><th>Total</th><th>Ship to</th><th>Status</th></tr>
+        </thead>
+        <tbody id="ordersBody"></tbody>
+      </table>
+    </div>
+  </main>
+
+  <script src="js/api.js"></script>
+  <script>
+    if (requireLogin() && !isAdmin()) window.location.href = "index.html";
+
+    let products = [];
+    let editId = null; // null means we are adding a new product
+
+    async function loadProducts() {
+      try {
+        products = await api("/products");
+        const body = document.getElementById("tableBody");
+
+        if (products.length === 0) {
+          body.innerHTML = '<tr><td colspan="5" class="empty">No products yet.</td></tr>';
+          return;
+        }
+
+        let html = "";
+        for (const p of products) {
+          html += `
+            <tr>
+              <td>${escapeHtml(p.name)}</td>
+              <td>${escapeHtml(p.category || "")}</td>
+              <td>${formatMoney(p.price)}</td>
+              <td>${p.stock}</td>
+              <td>
+                <button class="btn small outline" onclick="startEdit('${p._id}')">Edit</button>
+                <button class="btn small danger" onclick="deleteProduct('${p._id}')">Delete</button>
+              </td>
+            </tr>`;
+        }
+        body.innerHTML = html;
+      } catch (error) {
+        showMessage(error.message, "error");
+      }
+    }
+
+    function startEdit(id) {
+      const p = products.find(function (item) { return item._id === id; });
+      editId = id;
+
+      document.getElementById("name").value = p.name;
+      document.getElementById("category").value = p.category || "";
+      document.getElementById("price").value = p.price;
+      document.getElementById("stock").value = p.stock;
+      document.getElementById("image").value = p.image || "";
+      document.getElementById("description").value = p.description || "";
+
+      document.getElementById("formTitle").textContent = "Edit product";
+      document.getElementById("saveBtn").textContent = "Save changes";
+      document.getElementById("cancelBtn").style.display = "inline-block";
+      window.scrollTo(0, 0);
+    }
+
+    function resetForm() {
+      editId = null;
+      document.getElementById("productForm").reset();
+      document.getElementById("formTitle").textContent = "Add a product";
+      document.getElementById("saveBtn").textContent = "Add product";
+      document.getElementById("cancelBtn").style.display = "none";
+    }
+
+    document.getElementById("productForm").addEventListener("submit", async function (event) {
+      event.preventDefault();
+
+      const body = {
+        name: document.getElementById("name").value,
+        category: document.getElementById("category").value,
+        price: Number(document.getElementById("price").value),
+        stock: Number(document.getElementById("stock").value),
+        image: document.getElementById("image").value,
+        description: document.getElementById("description").value,
+      };
+
+      try {
+        if (editId) {
+          await api("/products/" + editId, "PUT", body);
+          showMessage("Product updated.", "success");
+        } else {
+          await api("/products", "POST", body);
+          showMessage("Product added.", "success");
+        }
+        resetForm();
+        loadProducts();
+      } catch (error) {
+        showMessage(error.message, "error");
+      }
+    });
+
+    async function deleteProduct(id) {
+      if (!confirm("Delete this product? This cannot be undone.")) return;
+
+      try {
+        await api("/products/" + id, "DELETE");
+        loadProducts();
+      } catch (error) {
+        showMessage(error.message, "error");
+      }
+    }
+
+    const STATUSES = [ "confirmed", "shipped", "delivered", "cancelled"];
+
+    async function loadOrders() {
+      try {
+        const orders = await api("/orders/all");
+        const body = document.getElementById("ordersBody");
+
+        if (orders.length === 0) {
+          body.innerHTML = '<tr><td colspan="6" class="empty">No orders yet.</td></tr>';
+          return;
+        }
+
+        let html = "";
+        for (const o of orders) {
+          const customer = o.user
+            ? escapeHtml(o.user.name) + "<br>" + escapeHtml(o.user.email)
+            : "Deleted user";
+
+          let items = "";
+          for (const item of o.items) {
+            const name = item.product ? item.product.name : "Deleted product";
+            items += escapeHtml(name) + " x " + item.quantity + "<br>";
+          }
+
+          const addr = o.shippingAddress || {};
+          const address = escapeHtml(addr.fullName) + "<br>" + escapeHtml(addr.city);
+
+          let options = "";
+          if (!STATUSES.includes(o.status)) {
+            options += '<option value="" selected disabled>' + o.status + "</option>";
+          }
+          for (const s of STATUSES) {
+            options += '<option value="' + s + '"' + (s === o.status ? " selected" : "") + ">" + s + "</option>";
+          }
+
+          html += `
+            <tr>
+              <td>${formatDate(o.createdAt)}</td>
+              <td>${customer}</td>
+              <td>${items}</td>
+              <td>${formatMoney(o.totalAmount)}<br>${o.paymentMethod === "cod" ? "Cash on delivery" : "Online"}</td>
+              <td>${address}</td>
+              <td>
+                <select onchange="changeStatus('${o._id}', this.value)">${options}</select>
+              </td>
+            </tr>`;
+        }
+        body.innerHTML = html;
+      } catch (error) {
+        showMessage(error.message, "error");
+      }
+    }
+
+    async function changeStatus(id, status) {
+      try {
+        await api("/orders/" + id + "/status", "PUT", { status });
+        showMessage("Order status updated.", "success");
+      } catch (error) {
+        showMessage(error.message, "error");
+      }
+      loadOrders();
+    }
+
+    loadProducts();
+    loadOrders();
+  </script>
+</body>
+</html>

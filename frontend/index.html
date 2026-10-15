@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Products - Shop</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <nav class="navbar" id="navbar"></nav>
+
+  <main class="container">
+    <div class="page-header">
+      <h1>Products</h1>
+      <p class="subtitle">Browse everything we have in stock.</p>
+    </div>
+
+    <form class="search" id="searchForm">
+      <input type="text" id="keyword" placeholder="Search by name">
+      <select id="category"><option value="">All categories</option></select>
+      <button class="btn" type="submit">Search</button>
+    </form>
+
+    <div id="message" class="message"></div>
+    <div id="productList" class="grid"></div>
+  </main>
+
+  <script src="js/api.js"></script>
+  <script>
+    let allProducts = [];
+
+    async function loadProducts() {
+      try {
+        allProducts = await api("/products");
+        fillCategories();
+        showProducts();
+      } catch (error) {
+        showMessage(error.message, "error");
+      }
+    }
+
+    // fill the category dropdown from the products we got
+    function fillCategories() {
+      const select = document.getElementById("category");
+      const seen = [];
+      for (const p of allProducts) {
+        if (p.category && !seen.includes(p.category)) seen.push(p.category);
+      }
+      for (const c of seen) {
+        select.innerHTML += '<option value="' + escapeHtml(c) + '">' + escapeHtml(c) + "</option>";
+      }
+    }
+
+    function showProducts() {
+      const keyword = document.getElementById("keyword").value.trim().toLowerCase();
+      const category = document.getElementById("category").value;
+
+      const list = allProducts.filter(function (p) {
+        const nameOk = p.name.toLowerCase().includes(keyword);
+        const catOk = !category || p.category === category;
+        return nameOk && catOk;
+      });
+
+      const box = document.getElementById("productList");
+      if (list.length === 0) {
+        box.innerHTML = '<p class="empty">No products found.</p>';
+        return;
+      }
+
+      let html = "";
+      for (const p of list) {
+        const inStock = p.stock > 0;
+        html += `
+          <div class="product">
+            <div class="pic">${pictureHtml(p)}</div>
+            <div class="info">
+              <h3>${escapeHtml(p.name)}</h3>
+              <span class="meta">${escapeHtml(p.category || "")}</span>
+              <div class="price">${formatMoney(p.price)}</div>
+              ${inStock ? "" : '<span class="badge out">Out of stock</span>'}
+              <div class="actions">
+                <a class="btn small outline" href="product.html?id=${p._id}">Details</a>
+                 ${isAdmin() ? "" : `<button class="btn small" ${inStock ? "" : "disabled"} onclick="addToCart('${p._id}', 1)">Add to cart</button>`}
+              </div>
+            </div>
+          </div>`;
+      }
+      box.innerHTML = html;
+    }
+
+    document.getElementById("searchForm").addEventListener("submit", function (event) {
+      event.preventDefault();
+      showProducts();
+    });
+
+    loadProducts();
+  </script>
+</body>
+</html>
