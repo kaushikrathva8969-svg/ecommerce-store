@@ -3,9 +3,7 @@
 // ============================================================
 
 // Your backend address (PORT in backend/.env is 8008)
-const API_URL = (location.hostname === "localhost" || location.hostname === "127.0.0.1")
-  ? "http://localhost:8008/api"
-  : "https://ecommerce-store-0ulh.onrender.com/api";
+const API_URL = "/api";
 
 // Razorpay TEST key id (same one used in your old script.js)
 const RAZORPAY_KEY = "rzp_test_Tihx8KDZwxYgcR";
